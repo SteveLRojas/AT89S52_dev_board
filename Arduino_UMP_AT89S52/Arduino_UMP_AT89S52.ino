@@ -1,5 +1,6 @@
 #include <SPI.h>
 
+#define CMD_GENUINE_BULLSHIT 0xF0
 #define CMD_PING 0xDE
 #define CMD_READ 0x01
 #define CMD_WRITE 0x02
@@ -16,6 +17,12 @@
 #define CMD_SET_TARGET 0x0E
 #define CMD_TEST 0x0F
 
+//Avoid using the SPI SS pin, it can cause the Arduino to hang
+#define PIN_AT_RST 9
+//The following pins must match the location of the SPI pins on the Arduino
+#define PIN_AT_MOSI 11
+#define PIN_AT_MISO 12
+#define PIN_AT_SCK 13
 
 byte is_unlocked = 0;   //not zero if the correct handshake has been received (0xDEADBEEF)
 byte data_buf[256];
@@ -38,11 +45,11 @@ void setup()
 {
     // put your setup code here, to run once:
     Serial.begin(115200);
+    pinMode(PIN_AT_RST, OUTPUT);
+    digitalWrite(PIN_AT_RST, HIGH);
     SPI.begin();
     SPI.setClockDivider(SPI_CLOCK_DIV32);
     SPI.setDataMode(SPI_MODE0);
-    pinMode(10, OUTPUT);
-    digitalWrite(10, HIGH);
     
     delay(100);
 }
@@ -306,6 +313,12 @@ void com_write()
 
 void com_unlock_all()
 {
+    pinMode(PIN_AT_RST, OUTPUT);
+    digitalWrite(PIN_AT_RST, HIGH);
+    pinMode(PIN_AT_SCK, OUTPUT);
+    pinMode(PIN_AT_MOSI, OUTPUT);
+    delay(100);
+    
     byte temp = at_prog_en();
     
     if(temp != 0x69)
@@ -345,6 +358,16 @@ void com_unlock_all()
     return;
 }
 
+void com_lock_all()
+{
+    pinMode(PIN_AT_SCK, INPUT);
+    pinMode(PIN_AT_MOSI, INPUT);
+    pinMode(PIN_AT_RST, INPUT);
+    Serial.write(0x55);
+    Serial.write(0xAA);
+    return;
+}
+
 void com_get_platform_descriptor()
 {
     serial_send_string(fs_platform_desc);
@@ -375,6 +398,8 @@ void loop()
     while(!Serial.available());
     switch(Serial.read())
     {
+        case CMD_GENUINE_BULLSHIT:
+            return; //Ignore the bad bytes inserted by the USB to serial chip on genuine arduino boards...
         case CMD_PING:
             wait_handshake(1);
             break;
@@ -388,8 +413,7 @@ void loop()
             com_unlock_all();
             break;
         case CMD_LOCK_ALL:
-            Serial.write(0xE0);
-            Serial.write(0x00);
+            com_lock_all();
             break;
         case CMD_GET_STATUS:
             Serial.write(0xE0);
